@@ -1,0 +1,215 @@
+Daily Notes:
+
+02.03.26
+    Task of the day:
+        Node A  →  sends signed message  →  Node B
+        Node B  →  verifies signature    →  responds OK
+
+    1. Understanding Digital Signature
+        
+15.03.26
+    Phase 1: Basic Cryptographic Node Authentication
+        Node A sends message + signature --> Node B which will verify(message, signature, publicKeyA) --> if valid, accept message
+    Phase 2: Signed PBFT Message Exchange Between Multiple Nodes
+        Implement PRE-PREPARE → PREPARE → COMMIT message flow with signature verification at every step, i.e., 
+        Primary Node --> PRE-PREPARE (signed) --> Replica Nodes --> PREPARE (signed) --> All Nodes --> COMMIT (signed) --> Block accepted
+
+16.03.26
+    Phase 3: Multinode automation
+        Instead of manually creating 4 nodes, generate n (user entered) no of nodes and simulate it.
+
+08.04.26
+    Phase 4: REST Based Distributed System + (3f+1)
+    What does application.properties do?
+        Explanation:
+            server.port → The HTTP port your Spring Boot node listens on.
+            Each node must have a different port (8081, 8082, 8083, 8084).
+            node.id → Unique identifier for the node.
+            Used internally in PBFT for distinguishing replicas.
+            peers → Comma-separated list of all nodes’ URLs.
+            Each node uses this to communicate with other replicas.
+
+        ---
+
+        # 1️⃣ Assumptions for your project
+
+        * You have 4 nodes: node1 → node4
+        * Each node is a **Spring Boot instance** running on a different port (`8081` → `8084`)
+        * Node config comes from `application.properties` (or command-line overrides)
+        * Nodes know each other via the `peers` list
+
+        ---
+
+        # 2️⃣ High-level PBFT flow
+
+        PBFT has **three main phases** for consensus:
+
+        1. **Pre-Prepare** – the leader proposes a value (e.g., a transaction or message)
+        2. **Prepare** – all replicas vote that they received a valid proposal
+        3. **Commit** – all replicas commit the value once enough votes are collected
+
+        ---
+
+        # 3️⃣ Mapping to your code structure
+
+        | Component                | Role in PBFT                                                               |
+        | ------------------------ | -------------------------------------------------------------------------- |
+        | `PbftApplication.java`   | Bootstraps the Spring Boot node                                            |
+        | `NodeConfig.java`        | Holds nodeId, port, and peers; helps other services know the environment   |
+        | `NodeController.java`    | Exposes REST endpoints like `/preprepare`, `/prepare`, `/commit`           |
+        | `Message.java`           | Model for messages exchanged between nodes (type, value, signatures, etc.) |
+        | `CryptoService.java`     | Handles signing/verification of messages                                   |
+        | `NodeClientService.java` | Sends messages to peer nodes (HTTP calls)                                  |
+        | `ConsensusService.java`  | Tracks messages from peers and decides when consensus is reached           |
+
+        ---
+
+        # 4️⃣ Flow of execution (for 4 nodes)
+
+        1. **Node startup**
+
+        * Each node reads `application.properties`:
+
+            * `server.port`
+            * `node.id`
+            * `peers` list
+        * `PbftApplication` starts the embedded server (Tomcat)
+
+        2. **Leader selection**
+
+        * In a simple setup, node1 is the leader for the first round
+        * Leader creates a **pre-prepare message** and signs it
+
+        3. **Pre-Prepare Phase**
+
+        * Leader calls `/preprepare` on all peers (via `NodeClientService`)
+        * Each node receives the message in `NodeController` and validates the signature
+
+        4. **Prepare Phase**
+
+        * If valid, each replica broadcasts a **prepare message** to all other nodes
+        * `ConsensusService` collects these prepare messages
+
+        5. **Commit Phase**
+
+        * Once a node receives **2f + 1 prepare messages** (f = max faulty nodes, for 4 nodes f=1)
+        * Node broadcasts **commit message** to all nodes
+        * Once a node receives **2f + 1 commit messages**, it commits the value
+
+        6. **Consensus achieved**
+
+        * All non-faulty nodes have the same committed value
+        * PBFT round is complete
+
+        ---
+
+        # 5️⃣ Running in VS Code
+
+        Since you have **4 nodes**, you run **4 terminals**, each starting the same code but with different ports/nodeIds:
+
+        ```bash id="n1flow"
+        mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081 --node.id=node1"
+        ```
+
+        ```bash id="n2flow"
+        mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8082 --node.id=node2"
+        ```
+
+        …and so on.
+
+        ---
+
+        # 6️⃣ Message flow example (simplified)
+
+        ```
+        Leader (node1)
+            │ pre-prepare(value)
+            ▼
+        Node2, Node3, Node4
+            │ prepare(value)
+            ▼
+        All nodes collect prepare messages
+            │ commit(value)
+            ▼
+        All nodes commit the value
+        ```
+
+        * Each phase uses `Message.java` + `CryptoService`
+        * Communication is handled by `NodeClientService` → calls REST endpoints in `NodeController`
+
+        ---
+
+        # 7️⃣ Key notes for your setup
+
+        1. **Constant nodes** – yes, your current setup works best for a fixed number (4) because peers are hardcoded in `peers`
+        2. **Leader rotation** – if you implement multiple rounds, you’ll rotate the leader (simple modulo by round number)
+        3. **Fault tolerance** – PBFT can tolerate **f = (n-1)/3** faulty nodes → for 4 nodes, f = 1
+
+        ---
+
+        💡 **Summary:**
+        Your Spring Boot nodes act like PBFT replicas. The **flow is: leader proposes → replicas validate → replicas broadcast → consensus → commit**. 
+        All nodes run the same code; the differences are **port, nodeId, and peers list**.
+
+
+
+        Once your Java and Maven setup is correctly configured and working, here’s a straightforward list of commands to run your **4 PBFT nodes** in separate VS Code terminals, all from your project root directory (where `pom.xml` is):
+
+---
+
+# Step-by-step commands for 4 nodes
+
+Open **4 separate terminals** in VS Code (Terminal → New Terminal × 4), then run these commands:
+
+---
+
+### Terminal 1 (node1 on port 8081)
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081 --node.id=node1"
+```
+
+---
+
+### Terminal 2 (node2 on port 8082)
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8082 --node.id=node2"
+```
+
+---
+
+### Terminal 3 (node3 on port 8083)
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8083 --node.id=node3"
+```
+
+---
+
+### Terminal 4 (node4 on port 8084)
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8084 --node.id=node4"
+```
+
+---
+
+# Notes:
+
+* Make sure you **run these from your project root folder** where `pom.xml` is located.
+* Each command runs one PBFT node instance with its own port and node ID.
+* If you want to stop a node, just press `Ctrl + C` in that terminal.
+* All nodes will communicate with each other using the `peers` list defined in your `application.properties` or the code.
+
+---
+
+# Optional: Simplify with VS Code tasks
+
+If you want, I can help you create a `tasks.json` file to run all 4 nodes via VS Code's task runner — so you don’t have to open multiple terminals manually.
+
+---
+
+This setup lets you **simulate a 4-node PBFT network locally** on your laptop!
+
+Ready to go?
